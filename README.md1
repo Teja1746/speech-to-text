@@ -1,0 +1,268 @@
+# Telangana Police STT Application
+
+A local, CPU-only speech-to-text web app for **Telugu, Hindi and English**, built with Python, Streamlit and an open-weight Whisper model from Hugging Face.
+
+> **Important:** automated transcription can contain errors. A person must check every transcript against the original audio before any official use. This app does not produce verified evidence and makes no legal conclusions. It is an independent tool, not an official product, and has no government approval.
+
+---
+
+## 1. Chosen model
+
+| Item | Details |
+|---|---|
+| Model | **Whisper large-v3-turbo**, converted to CTranslate2 format |
+| Hugging Face page | https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2 |
+| Runs with | `faster-whisper` (CPU, int8) |
+| License | MIT (shown on the model page) |
+| Download size | about 1.6 GB (`model.bin` is listed as 1.62 GB) |
+| RAM | about 3-4 GB with int8. **This is an estimate**, not a published figure. Measure it on your machine (section 9). |
+| Languages | The model supports about 100 languages. This app uses Telugu (`te`), Hindi (`hi`), English (`en`). |
+| Cost | No paid API key. After the one-time download it works offline. |
+
+**Why this model:** it is one model for all three languages, it is open (MIT), it runs on a normal CPU, and it is the most accurate of the Whisper sizes that remain practical without a GPU.
+
+**Limitations (be aware):**
+- Accuracy is generally lower for Telugu than for English or Hindi. Do not assume a number; measure it with your own audio using the WER/CER tool.
+- Accents, background noise, phone-quality audio, names, numbers and mixed-language speech cause more errors.
+- On CPU it can be slower than real time. A 10-minute recording may take several minutes.
+
+Two lighter models are available in the app's **Model** menu: `Whisper medium` and `Whisper small`. Use them if your computer has little memory.
+
+> Why not one of the India-specific models? AI4Bharat IndicConformer is strong for Indian languages but does not cover English, so it would need a second model. This project keeps to one model by design. See "Next steps" at the end.
+
+---
+
+## 2. Project structure
+
+```
+telangana-police-stt/
+├── app.py               # the web application
+├── config.py            # app title, languages, list of models
+├── download_model.py    # optional: download the model before first run
+├── requirements.txt     # Python packages
+├── README.md            # this guide
+├── .gitignore           # keeps audio, models and venv out of Git
+└── .streamlit/
+    └── config.toml      # theme, upload limit, telemetry off
+```
+
+---
+
+## 3. Installation
+
+You need **Python 3.10, 3.11 or 3.12**. (Very new versions such as 3.14 may not have ready-made packages yet; use 3.12 if you can.) Check with:
+
+```bash
+python3 --version        # Linux
+python --version         # Windows
+```
+
+### Linux (Ubuntu/Debian)
+
+```bash
+# 1. Go into the project folder
+cd telangana-police-stt
+
+# 2. Create a virtual environment (a private box for this project's packages)
+python3 -m venv venv
+#    If this fails: sudo apt update && sudo apt install -y python3-venv
+
+# 3. Activate it. You will see (venv) at the start of the line.
+source venv/bin/activate
+
+# 4. Install the packages
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+### Windows (PowerShell)
+
+```powershell
+cd telangana-police-stt
+py -3.12 -m venv venv
+venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+If PowerShell says scripts are disabled, run this once and try again:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+Using Command Prompt instead? Activate with `venv\Scripts\activate.bat`.
+
+---
+
+## 4. Download and cache the model
+
+The app downloads the model automatically the first time you press **Transcribe**, but it is easier to do it once before:
+
+```bash
+python download_model.py            # recommended model, about 1.6 GB
+python download_model.py medium     # lighter option
+python download_model.py small      # lowest memory
+```
+
+The files are saved in the `models/` folder inside the project and are reused on every run. You only need internet for this step.
+
+**To make sure the app never contacts the internet afterwards**, set this before running it:
+
+```bash
+export HF_HUB_OFFLINE=1          # Linux
+$env:HF_HUB_OFFLINE = "1"        # Windows PowerShell
+```
+
+---
+
+## 5. Run the app
+
+```bash
+streamlit run app.py
+```
+
+A browser tab opens at `http://localhost:8501`. To stop the app, press `Ctrl + C` in the terminal.
+
+### Using it on a local network (optional)
+
+```bash
+streamlit run app.py --server.address 0.0.0.0 --server.port 8501
+```
+
+Other computers open `http://<this-computer-IP>:8501`. Find the IP with `hostname -I` (Linux) or `ipconfig` (Windows). Notes:
+
+- The app has **no login**. Anyone on the network can use it. Use a trusted, private network only.
+- Browsers block **microphone recording** and some clipboard features on plain `http://` network addresses (they only allow them on `localhost` or `https`). File upload still works. The Copy button has a fallback for this.
+- You may need to allow port 8501 in the firewall.
+
+---
+
+## 6. How to use the app
+
+1. Choose the spoken language.
+2. Upload a WAV, MP3, M4A or FLAC file, or record with the microphone.
+3. Play the audio to check it.
+4. Press **Transcribe** and wait for the progress bar.
+5. Read and correct the text in the editable box.
+6. Use **Copy Text**, **TXT** or **CSV** to export. **Reset** clears everything.
+7. Optional: open **Evaluate accuracy**, paste the correct transcript, and press **Calculate WER and CER**.
+
+---
+
+## 7. How the code works (for beginners)
+
+**`config.py`** holds settings in one place: the app title, the language menu (`"Telugu" -> "te"`), and the list of models. To add a model, add one entry there.
+
+**`app.py`** is read top to bottom every time you click something (this is how Streamlit works). Main parts:
+
+- **Page setup and theme:** `st.set_page_config` and a block of CSS give the navy/white/grey look. `.streamlit/config.toml` sets the base colors.
+- **`load_model()`:** creates the speech model. `@st.cache_resource` means it is created once and reused, so only the first transcription is slow to start. `compute_type="int8"` uses compact numbers so the model is smaller and faster on a CPU.
+- **Language and model menus:** `st.selectbox` returns what the user picked; we convert it to a language code like `te`.
+- **Audio input:** `st.file_uploader` for files and `st.audio_input` for the microphone. `st.audio` shows the playback controls.
+- **`transcribe_audio()`:** saves the audio to a temporary file, runs the model, and **always deletes the file** in a `finally` block. It passes `task="transcribe"` so the text stays in the spoken language (never translated). `vad_filter=True` skips silence. The model returns pieces ("segments") one by one, which keeps memory use low for long recordings and lets us update the progress bar.
+- **Error handling:** `friendly_error()` turns technical errors (out of memory, unreadable file, download failure) into plain messages. Empty files and files with no speech are handled without crashing.
+- **Results area:** `st.text_area` with `key="transcript_text"` is editable and keeps your edits. The downloads use whatever is currently in the box. The CSV is UTF-8 with a BOM so Excel displays Telugu and Hindi correctly.
+- **`normalize_text()` and WER/CER:** both texts are normalized the same way (Unicode NFC, lowercase, punctuation including the Hindi `।` removed, extra spaces removed), then `jiwer.wer` and `jiwer.cer` calculate the error rates.
+- **`reset_all()`:** clears saved results and changes the widget keys, which empties the upload and microphone widgets.
+
+**`download_model.py`** just creates the model once so the files get downloaded and cached.
+
+---
+
+## 8. Privacy and handling of files
+
+- Audio is processed on this computer. The only network use is the one-time model download from Hugging Face.
+- Uploaded audio is held in memory and written to a temporary file only during transcription. The file is deleted immediately afterwards (`finally` block in `transcribe_audio`). Audio is never saved permanently by the app.
+- The app does not write transcript text to any log. Streamlit usage statistics are switched off in `.streamlit/config.toml`.
+- Streamlit keeps the uploaded file in memory until you press **Reset** or close the tab.
+- Files you **download** (TXT/CSV) go to your browser's download folder and are yours to manage under your organization's rules.
+- `.gitignore` keeps audio files, transcripts and models out of Git.
+- This app has no user accounts or access control. Following your organization's data-protection and evidence-handling rules is your responsibility.
+
+---
+
+## 9. RAM and speed (CPU tips)
+
+Measure real usage instead of trusting estimates. In another terminal while transcribing:
+
+```bash
+htop                       # Linux (install with: sudo apt install htop)
+```
+On Windows use Task Manager (Performance tab).
+
+To get better speed and lower memory:
+
+- Close browsers tabs and other heavy programs.
+- Use `Whisper medium` or `Whisper small` from the Model menu on small machines.
+- Split very long recordings into parts of 20-30 minutes.
+- Use WAV or FLAC mono audio at 16 kHz when possible (smaller to decode).
+- More CPU cores help. The app uses all available cores automatically.
+
+---
+
+## 10. Testing Telugu, Hindi and English separately
+
+Test each language with its own short recording (30-60 seconds) of clear speech.
+
+1. **Telugu:** choose *Telugu*, upload a Telugu recording, transcribe, and check that the output is in Telugu script (not English, not Hindi).
+2. **Hindi:** choose *Hindi*, upload a Hindi recording, and check the output is in Devanagari script.
+3. **English:** choose *English*, upload an English recording, and check the output is in English.
+4. **Wrong-language test:** transcribe the Telugu file with *Hindi* selected. Poor output here is expected; it confirms the language menu is actually used.
+5. **Error tests:** upload an empty file, a renamed text file (`notes.txt` renamed to `notes.mp3`), and a silent recording. The app should show a message, not crash.
+
+### Transcript quality checklist
+
+- [ ] Output is in the correct script and language (not translated)
+- [ ] Names of people and places are correct
+- [ ] Numbers, dates, phone numbers and amounts are correct
+- [ ] Nothing is missing at the start or end
+- [ ] No repeated sentences or invented text during silence or noise
+- [ ] Mixed-language words (for example English words inside Telugu speech) are handled acceptably
+- [ ] A person listened to the audio while reading the text
+
+---
+
+## 11. Comparing models with WER and CER
+
+1. Pick one test recording and write its **exact correct transcript** by hand. Use the same recording and reference for every model.
+2. Choose a model in the **Model** menu and transcribe.
+3. Open **Evaluate accuracy**, paste the reference, choose *Original model output*, and press **Calculate**.
+4. Record the numbers. Repeat for each model.
+
+| Model | Language | WER % | CER % | Processing time |
+|---|---|---|---|---|
+| large-v3-turbo | | | | |
+| medium | | | | |
+| small | | | | |
+
+Lower is better. WER counts wrong, missing and extra **words**; CER does the same for **characters**, which is more forgiving for Telugu and Hindi, where small spelling differences change a whole word. Use at least several recordings per language before drawing conclusions.
+
+---
+
+## 12. Troubleshooting
+
+| Problem | What to do |
+|---|---|
+| `ModuleNotFoundError: No module named 'faster_whisper'` (or `streamlit`, `jiwer`) | The virtual environment is not active or packages are not installed. Activate it, then run `pip install -r requirements.txt`. |
+| `streamlit: command not found` | Run `python -m streamlit run app.py` with the venv active. |
+| Package install fails on a very new Python | Create the venv with Python 3.12 (`py -3.12 -m venv venv` on Windows, `python3.12 -m venv venv` on Linux). |
+| Model download fails or is very slow | Check the internet connection and free disk space (at least 3 GB). Run `python download_model.py` again; it resumes. Try `small` to test. |
+| "Model could not be downloaded" while offline | Download once with internet, then keep `HF_HUB_OFFLINE=1`. |
+| App says out of memory or the computer freezes | Choose a lighter model, close other programs, split the audio. |
+| "This file could not be read as audio" | The file is corrupted or not audio. Convert it to WAV (for example with Audacity) and try again. |
+| MP3/M4A will not open | Try WAV or FLAC. The decoder is installed with `faster-whisper`; a damaged file is the usual cause. |
+| Microphone does not work | Use `localhost` or `https`. Allow microphone permission in the browser. Update Streamlit (`pip install -U streamlit`). |
+| Copy button does nothing | Select the text in the box and press `Ctrl + C` instead. Browsers restrict clipboard access on plain `http` network addresses. |
+| Output is in the wrong language or script | Select the correct spoken language before transcribing. |
+| Repeated words or text during silence | Normal Whisper behavior on noisy or silent audio. The app already filters silence; check the audio and verify manually. |
+| Telugu output is poor | Try the recommended model, use clean audio, and measure with WER/CER. See "Next steps". |
+| Port 8501 already in use | `streamlit run app.py --server.port 8502` |
+
+---
+
+## 13. Next steps if Telugu accuracy is not good enough
+
+- Test a Telugu-specialized model (for example the Whisper models fine-tuned by the IIT Madras Speech Lab, or AI4Bharat IndicConformer for Telugu and Hindi) and compare with the WER/CER tool on your own recordings.
+- Convert Transformers-format models to CTranslate2 with `ct2-transformers-converter` so they can run in this app, then add them to `MODELS` in `config.py`.
+- IndicConformer does not cover English, so a combined setup would route English to Whisper.
